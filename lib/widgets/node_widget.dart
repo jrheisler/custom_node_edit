@@ -75,10 +75,13 @@ class _NodeWidgetState extends State<NodeWidget> {
                   : null,
             ),
             child: Center(
-              child: Text(
-                widget.nodeId,
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-                textAlign: TextAlign.center,
+              child: Transform.rotate(
+                angle: widget.isDiamond ? -45 * 3.14159 / 180 : 0,
+                child: Text(
+                  widget.nodeId,
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
           ),
