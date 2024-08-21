@@ -39,11 +39,27 @@ class _NodeWidgetState extends State<NodeWidget> {
       left: _currentPosition.dx,
       top: _currentPosition.dy,
       child: GestureDetector(
+        onPanStart: (details) {
+          // Initialize drag starting point
+          _currentPosition = widget.position;
+        },
         onPanUpdate: (details) {
           setState(() {
+            // Directly update position based on drag
             _currentPosition += details.delta;
+
+            // Update the node's position on the canvas
+            widget.onMove(widget.nodeId, _currentPosition);
           });
-          widget.onMove(widget.nodeId, _currentPosition);
+        },
+        onPanEnd: (details) {
+          setState(() {
+            // Snap to the nearest grid point when drag ends
+            _currentPosition = _snapToGrid(_currentPosition);
+
+            // Final position update
+            widget.onMove(widget.nodeId, _currentPosition);
+          });
         },
         child: Transform.rotate(
           angle: widget.isDiamond ? 45 * 3.14159 / 180 : 0,
@@ -69,5 +85,12 @@ class _NodeWidgetState extends State<NodeWidget> {
         ),
       ),
     );
+  }
+
+  Offset _snapToGrid(Offset position) {
+    final double gridSize = 20.0;
+    final double x = (position.dx / gridSize).round() * gridSize;
+    final double y = (position.dy / gridSize).round() * gridSize;
+    return Offset(x, y);
   }
 }
