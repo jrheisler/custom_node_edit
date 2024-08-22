@@ -10,9 +10,11 @@ class NodeEditor extends StatefulWidget {
 }
 
 class _NodeEditorState extends State<NodeEditor> {
-  double _scale = 1.0; // Initial scale factor
   final Map<String, Offset> _nodes = {};
   final Uuid uuid = Uuid(); // UUID generator for unique IDs
+
+  double _scale = 1.0;
+  Offset _panOffset = Offset.zero; // Track the pan offset
 
   void _updateNodePosition(String nodeId, Offset newPosition) {
     setState(() {
@@ -20,13 +22,31 @@ class _NodeEditorState extends State<NodeEditor> {
     });
   }
 
-  void _addNode(String nodeType, Offset position, Color color, BoxShape shape, bool isDiamond) {
+  void _addNode(String nodeType, Offset globalPosition, Color color, BoxShape shape, bool isDiamond) {
     final uniqueId = '${nodeType}_${uuid.v4()}'; // Generate a unique ID for each node instance
+
+    // Adjust the global position by manually applying the pan and scale
+    final Offset adjustedPosition = (globalPosition + _panOffset) / _scale;
+
     setState(() {
-      _nodes[uniqueId] = position * _scale;
+      _nodes[uniqueId] = adjustedPosition;
     });
   }
 
+
+
+
+  void _onScaleUpdate(double newScale) {
+    setState(() {
+      _scale = newScale;
+    });
+  }
+
+  void _onPanUpdate(Offset newOffset) {
+    setState(() {
+      _panOffset = newOffset;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,20 +54,19 @@ class _NodeEditorState extends State<NodeEditor> {
       appBar: AppBar(
         title: const Text('Node Editor'),
         actions: [
-          Row(
-            children: [
-              Text("Node Size: ${(_scale * 100).round()}%"),
-              Slider(
-                value: _scale,
-                min: 0.5,
-                max: 2.0,
-                onChanged: (newValue) {
-                  setState(() {
-                    _scale = newValue;
-                  });
-                },
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                const Text('Node Size:'),
+                Slider(
+                  value: _scale,
+                  onChanged: _onScaleUpdate,
+                  min: 0.5,
+                  max: 2.0,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -61,46 +80,58 @@ class _NodeEditorState extends State<NodeEditor> {
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 SizedBox(height: 10),
-                _buildDraggablePaletteButton("Start", Colors.green, BoxShape.circle, false),
+                _buildDraggablePaletteButton(
+                    "Start", Colors.green, BoxShape.circle, false),
                 SizedBox(height: 10),
-                _buildDraggablePaletteButton("Process", Colors.blue, BoxShape.rectangle, false),
+                _buildDraggablePaletteButton(
+                    "Process", Colors.blue, BoxShape.rectangle, false),
                 SizedBox(height: 10),
-                _buildDraggablePaletteButton("Decision", Colors.orange, BoxShape.rectangle, true),
+                _buildDraggablePaletteButton(
+                    "Decision", Colors.orange, BoxShape.rectangle, true),
                 SizedBox(height: 10),
-                _buildDraggablePaletteButton("Stop", Colors.red, BoxShape.circle, false),
+                _buildDraggablePaletteButton(
+                    "Stop", Colors.red, BoxShape.circle, false),
               ],
             ),
           ),
-          // The canvas with grid and nodes
-          Expanded(
-            child: DragTarget<Map<String, dynamic>>(
-              onAcceptWithDetails: (details) {
-                final nodeType = details.data['nodeId']; // Use node type instead of ID
-                final Color color = details.data['color'];
-                final BoxShape shape = details.data['shape'];
-                final bool isDiamond = details.data['isDiamond'];
+          // The panning and zooming canvas
+      Expanded(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 2.0,
+          constrained: false,
+          onInteractionUpdate: (details) {
+            _onPanUpdate(details.localFocalPoint); // Update the pan offset
+          },
+          child: Container(
+            width: 3000, // Set a very large width
+            height: 3000, // Set a very large height
+            color: Colors.grey.shade800, // Dark mode background
+            child: Stack(
+              clipBehavior: Clip.none, // Ensure the content isn't clipped
+              children: [
+                // Grid Background
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: GridPainter(gridSize: 20),
+                  ),
+                ),
+                // Nodes on the canvas
+                Positioned.fill(
+                  child: DragTarget<Map<String, dynamic>>(
+                    onAcceptWithDetails: (details) {
+                      final nodeType = details.data['nodeId'];
+                      final Color color = details.data['color'];
+                      final BoxShape shape = details.data['shape'];
+                      final bool isDiamond = details.data['isDiamond'];
 
-                // Calculate the drop position and adjust by the node's size
-                final double nodeWidth = 100 * _scale;  // Assuming node width is 100 * scale
-                final double nodeHeight = 100 * _scale; // Assuming node height is 100 * scale
-                final dropPosition = details.offset - Offset(nodeWidth / 2, nodeHeight / 2);
-
-                _addNode(nodeType, dropPosition, color, shape, isDiamond);
-              },
-              builder: (context, candidateData, rejectedData) {
-                return Stack(
-                  children: [
-                    // Grid Background
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: GridPainter(gridSize: 20 * _scale),
-                      ),
-                    ),
-                    // Nodes on the canvas
-                    Positioned.fill(
-                      child: Stack(
+                      // Correctly adjust the drop position using the transformation matrix
+                      _addNode(nodeType, details.offset, color, shape, isDiamond);
+                    },
+                    builder: (context, candidateData, rejectedData) {
+                      return Stack(
                         children: _nodes.entries.map((entry) {
-                          final nodeType = entry.key.split('_')[0]; // Extract the node type from the unique ID
+                          final nodeType = entry.key.split('_')[0];
                           final shape = nodeType == "Decision"
                               ? BoxShape.rectangle
                               : (nodeType == "Process" ? BoxShape.rectangle : BoxShape.circle);
@@ -119,58 +150,64 @@ class _NodeEditorState extends State<NodeEditor> {
                             shape: shape,
                             isDiamond: nodeType == "Decision",
                             onMove: _updateNodePosition,
-                            scale: _scale,
-                            label: nodeType, // Use node type as the label
+                            scale: _scale, // Apply the current scale
+                            label: nodeType,
                           );
                         }).toList(),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
+      ),
+
+      ],
       ),
     );
   }
 
-  Widget _buildDraggablePaletteButton(String nodeType, Color color, BoxShape shape, bool isDiamond) {
+  Widget _buildDraggablePaletteButton(
+      String nodeType, Color color, BoxShape shape, bool isDiamond) {
     return Draggable<Map<String, dynamic>>(
       data: {
-        'nodeId': nodeType, // Pass the node type instead of a unique ID
+        'nodeId': nodeType,
         'color': color,
         'shape': shape,
         'isDiamond': isDiamond,
-        'position': null,
       },
       feedback: Material(
         color: Colors.transparent,
-        child: _buildNodePreview(nodeType, color, shape, isDiamond, scale: 1.0), // No scaling on palette
+        child: _buildNodePreview(nodeType, color, shape, isDiamond),
       ),
       childWhenDragging: Opacity(
         opacity: 0.5,
-        child: _buildNodePreview(nodeType, color, shape, isDiamond, scale: 1.0), // No scaling on palette
+        child: _buildNodePreview(nodeType, color, shape, isDiamond),
       ),
-      child: _buildNodePreview(nodeType, color, shape, isDiamond, scale: 1.0), // No scaling on palette
+      child: _buildNodePreview(nodeType, color, shape, isDiamond),
     );
   }
 
-  Widget _buildNodePreview(String nodeType, Color color, BoxShape shape, bool isDiamond, {required double scale}) {
+  Widget _buildNodePreview(
+      String nodeType, Color color, BoxShape shape, bool isDiamond) {
     return Container(
-      width: 80 * scale, // Apply scaling only if required
-      height: 80 * scale, // Apply scaling only if required
+      width: 80,
+      height: 80,
       decoration: BoxDecoration(
         color: color,
         shape: shape,
-        borderRadius: shape == BoxShape.rectangle && !isDiamond ? BorderRadius.circular(10 * scale) : null,
+        borderRadius: shape == BoxShape.rectangle && !isDiamond
+            ? BorderRadius.circular(10)
+            : null,
       ),
       child: Center(
         child: Transform.rotate(
           angle: isDiamond ? 45 * 3.14159 / 180 : 0,
           child: Text(
-            nodeType, // Display only the node type (e.g., "Start," "Process")
-            style: TextStyle(color: Colors.white, fontSize: 12 * scale),
+            nodeType,
+            style: TextStyle(color: Colors.white, fontSize: 12),
             textAlign: TextAlign.center,
           ),
         ),
@@ -179,7 +216,6 @@ class _NodeEditorState extends State<NodeEditor> {
   }
 }
 
-// GridPainter class to paint the grid background
 class GridPainter extends CustomPainter {
   final double gridSize;
 
@@ -188,19 +224,20 @@ class GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.grey.shade800
-      ..strokeWidth = 1;
+      ..color = Colors.white24
+      ..strokeWidth = 1.0;
 
-    for (double x = 0; x < size.width; x += gridSize) {
+    for (double x = 0; x <= size.width; x += gridSize) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
-    for (double y = 0; y < size.height; y += gridSize) {
+
+    for (double y = 0; y <= size.height; y += gridSize) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
+    return false;
   }
 }
