@@ -9,6 +9,8 @@ class NodeWidget extends StatefulWidget {
   final BoxShape shape;
   final bool isDiamond;
   final NodeMoveCallback onMove;
+  final double scale; // Add scale as a parameter to adjust size
+  final String label;
 
   const NodeWidget({
     Key? key,
@@ -18,6 +20,8 @@ class NodeWidget extends StatefulWidget {
     required this.shape,
     required this.isDiamond,
     required this.onMove,
+    required this.scale, // Accept the scale parameter
+    required this.label,
   }) : super(key: key);
 
   @override
@@ -64,22 +68,25 @@ class _NodeWidgetState extends State<NodeWidget> {
         child: Transform.rotate(
           angle: widget.isDiamond ? 45 * 3.14159 / 180 : 0,
           child: Container(
-            width: 100,
-            height: 100,
+            width: 100 * widget.scale, // Adjust width based on scale
+            height: 100 * widget.scale, // Adjust height based on scale
             decoration: BoxDecoration(
               color: widget.color,
               shape: widget.shape,
               border: Border.all(color: Colors.white, width: 2),
               borderRadius: widget.shape == BoxShape.rectangle && !widget.isDiamond
-                  ? BorderRadius.circular(10)
+                  ? BorderRadius.circular(10 * widget.scale)
                   : null,
             ),
             child: Center(
               child: Transform.rotate(
                 angle: widget.isDiamond ? -45 * 3.14159 / 180 : 0,
                 child: Text(
-                  widget.nodeId,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  widget.label,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16 * widget.scale, // Adjust text size based on scale
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ),
