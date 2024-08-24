@@ -14,7 +14,7 @@ class CustomNodeEditorApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Custom Node Editor',
       theme: ThemeData.dark(), // Default to dark mode
-      home: const NodeEditor(),
+      home: NodeEditor(),
     );
   }
 }
