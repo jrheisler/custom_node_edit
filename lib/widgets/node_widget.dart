@@ -16,6 +16,7 @@ class NodeWidget extends StatefulWidget {
   final Function(String, String, Offset) onAnchorDragUpdate;
   final Function(String, String, Offset) onAnchorDragEnd;
   final Function(String, Map<String, Offset>) onAnchorPositionUpdate; // Accept anchor positions
+  final Function(String nodeId) onLongPress; // Add this line
 
   const NodeWidget({
     Key? key,
@@ -31,6 +32,7 @@ class NodeWidget extends StatefulWidget {
     required this.onAnchorDragUpdate,
     required this.onAnchorDragEnd,
     required this.onAnchorPositionUpdate,
+    required this.onLongPress, // Add this line
   }) : super(key: key);
 
   @override
@@ -91,6 +93,9 @@ class _NodeWidgetState extends State<NodeWidget> {
             widget.onMove(widget.nodeId, _currentPosition);
             _updateAnchorPositions(); // Ensure positions are accurate after move
           });
+        },
+        onLongPress: () {
+          widget.onLongPress(widget.nodeId); // Handle long press
         },
         child: Container(
           width: 120 * widget.scale,

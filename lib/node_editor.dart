@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:html';
 import 'package:flutter/material.dart';
 import 'package:custom_node_editor/widgets/node_widget.dart';
 import 'package:uuid/uuid.dart';
+import 'dart:convert';
 
 class NodeEditor extends StatefulWidget {
   const NodeEditor({Key? key}) : super(key: key);
@@ -21,33 +24,56 @@ class _NodeEditorState extends State<NodeEditor> {
 
   double _scale = 1.0;
   Offset _panOffset = Offset.zero; // Track the pan offset
+  Timer? _throttleTimer;
+
+  void _onPanUpdate(Offset newOffset) {
+    if (_throttleTimer?.isActive ?? false) return;
+
+    _throttleTimer = Timer(Duration(milliseconds: 16), () {
+      setState(() {
+        _panOffset = newOffset;
+      });
+    });
+  }
+
+
 
   @override
   void dispose() {
+    // Dispose any controllers, streams, or other resources
     super.dispose();
   }
 
-  void _storeAnchorPositions(String nodeId, Map<String, Offset> anchorPositions) {
-    setState(() {
-      _nodeAnchors[nodeId] = anchorPositions;
+  String exportToJson() {
+    final data = {
+      'nodes': _nodes.map((key, value) => MapEntry(key, {'position': {'dx': value.dx, 'dy': value.dy}})),
+      'connections': _connections,
+    };
 
-      // Debugging - Print the updated anchor positions
-      //anchorPositions.forEach((anchorId, position) {
-      //  print('Node: $nodeId, Anchor: $anchorId, Position: $position');
-      //});
+    return jsonEncode(data);
+  }
+
+  void importFromJson(String jsonString) {
+    final data = jsonDecode(jsonString);
+
+    setState(() {
+      _nodes.clear();
+      _connections.clear();
+
+      data['nodes'].forEach((key, value) {
+        _nodes[key] = Offset(value['position']['dx'], value['position']['dy']);
+      });
+
+      _connections.addAll(Map<String, Map<String, String>>.from(data['connections']));
     });
   }
+
 
   void _updateNodePosition(String nodeId, Offset newPosition) {
     setState(() {
       _nodes[nodeId] = newPosition;
-      _storeAnchorPositions(nodeId, _nodes);
-
-      // Debugging: Log the node's new position
-      //print('DEBUG: Node $nodeId position updated to $newPosition');
     });
   }
-
 
   void _addNode(String nodeType, Offset globalPosition, Color color, BoxShape shape, bool isDiamond) {
     final uniqueId = '${nodeType}_${uuid.v4()}'; // Generate a unique ID for each node instance
@@ -57,11 +83,8 @@ class _NodeEditorState extends State<NodeEditor> {
 
     setState(() {
       _nodes[uniqueId] = adjustedPosition;
-      _storeAnchorPositions(uniqueId, _nodes);
-      // Assuming the NodeWidget will report its anchor positions after it is added.
     });
   }
-
 
   void _onScaleUpdate(double newScale) {
     setState(() {
@@ -69,67 +92,30 @@ class _NodeEditorState extends State<NodeEditor> {
     });
   }
 
-  void _onPanUpdate(Offset newOffset) {
-    setState(() {
-      _panOffset = newOffset;
-    });
-  }
+
 
   void _onAnchorDragStart(String nodeId, String anchorId, Offset startPosition) {
     setState(() {
+      // Set the start node and anchor only once at the beginning of the drag
       startNode = nodeId;
       startAnchor = anchorId;
       connectionStart = startPosition;
       currentConnectionPosition = startPosition;
 
-      //print('DEBUG: Drag started from $startNode (Anchor: $startAnchor) at position: $startPosition');
+      // Debugging
+      print('Drag started from $startNode (Anchor: $startAnchor) at position: $startPosition');
     });
   }
 
   void _onAnchorDragUpdate(String nodeId, String anchorId, Offset position) {
     setState(() {
       currentConnectionPosition = position;
+
+      // Debugging
+      print('Dragging to Position: $currentConnectionPosition');
     });
   }
-/*
-  void _onAnchorDragEnd(String nodeId, String anchorId, Offset endPosition) {
-    setState(() {
-      if (startNode != null && startAnchor != null) {
-        final String? endNode = _findNodeAtPosition(endPosition);
 
-        if (endNode != null && startNode != endNode) {
-          final startAnchorPos = _nodeAnchors[startNode!]?[startAnchor!];
-          final endAnchorPos = _nodeAnchors[endNode]?[anchorId];
-
-          if (startAnchorPos != null && endAnchorPos != null) {
-            _connections[startNode!] ??= {};
-            _connections[startNode!]![startAnchor!] = endNode;
-
-            connectionStart = startAnchorPos;
-            currentConnectionPosition = endAnchorPos;
-
-            print('DEBUG: Connection made from $startNode (Anchor: $startAnchor) to $endNode (Anchor: $anchorId)');
-            print('DEBUG: Start Anchor Position: $startAnchorPos');
-            print('DEBUG: End Anchor Position: $endAnchorPos');
-          } else {
-            print('DEBUG: Could not find start or end anchor position.');
-          }
-        } else if (endNode == null) {
-          print('DEBUG: No node found at end position.');
-        } else {
-          print('DEBUG: Attempted to connect node to itself.');
-        }
-      } else {
-        print('DEBUG: Start node or anchor is null.');
-      }
-
-      connectionStart = null;
-      currentConnectionPosition = null;
-      startNode = null;
-      startAnchor = null;
-    });
-  }
-*/
   void _onAnchorDragEnd(String nodeId, String anchorId, Offset endPosition) {
     setState(() {
       // Debugging: Output the start information
@@ -139,15 +125,16 @@ class _NodeEditorState extends State<NodeEditor> {
       if (startNode != null && startAnchor != null) {
         // Find the node at the end position
         final String? endNode = _findNodeAtPosition(endPosition);
-
         if (endNode != null && startNode != endNode) {
           final startAnchorPos = _nodeAnchors[startNode!]?[startAnchor!];
-          final endAnchorPos = _nodeAnchors[endNode]?[anchorId]; // Corrected end anchor position lookup
+          final endAnchorPos = endPosition; // Use the passed in endPosition
 
-          if (startAnchorPos != null && endAnchorPos != null) {
+          if (startAnchorPos != null) {
+            // Create the connection
             _connections[startNode!] ??= {};
             _connections[startNode!]![startAnchor!] = endNode;
 
+            // Set the connection positions
             connectionStart = startAnchorPos;
             currentConnectionPosition = endAnchorPos;
 
@@ -156,7 +143,7 @@ class _NodeEditorState extends State<NodeEditor> {
             print('Start Anchor Position: $connectionStart');
             print('End Anchor Position: $currentConnectionPosition');
           } else {
-            print('Could not find valid anchor positions.');
+            print('Could not find start anchor position for the node.');
           }
         } else if (endNode == null) {
           print('No node found at the end position.');
@@ -174,27 +161,69 @@ class _NodeEditorState extends State<NodeEditor> {
       startAnchor = null;
     });
   }
+
   String? _findNodeAtPosition(Offset position) {
+    // Iterate over all nodes to find which one contains the position
     for (var entry in _nodes.entries) {
       final nodePosition = entry.value;
       final nodeSize = Size(120 * _scale, 120 * _scale); // Assuming all nodes are 120x120 scaled
       final nodeRect = Rect.fromLTWH(nodePosition.dx, nodePosition.dy, nodeSize.width, nodeSize.height);
 
       if (nodeRect.contains(position)) {
-        return entry.key;
+        return entry.key; // Return the node ID
       }
     }
-    return null;
+    return null; // No node found at this position
   }
 
+  void _storeAnchorPositions(String nodeId, Map<String, Offset> anchorPositions) {
+    setState(() {
+      _nodeAnchors[nodeId] = anchorPositions;
 
+      // Debugging
+      //anchorPositions.forEach((anchorId, position) {
+      //  print('Anchor: $anchorId, Position: $position');
+      //});
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: _resetNodes,
+        tooltip: 'Reset Nodes',
+        child: Icon(Icons.refresh),
+      ),
       appBar: AppBar(
         title: const Text('Node Editor'),
         actions: [
+          IconButton(
+            icon: Icon(Icons.save),
+            onPressed: saveToLocalStorage,
+            tooltip: 'Save to Local Storage',
+          ),
+          IconButton(
+            icon: Icon(Icons.upload_file),
+            onPressed: loadFromLocalStorage,
+            tooltip: 'Load from Local Storage',
+          ),
+          IconButton(
+            icon: Icon(Icons.import_export),
+            onPressed: () {
+              final jsonString = exportToJson();
+              print(jsonString); // Or use any method to export the JSON string
+            },
+            tooltip: 'Export to JSON',
+          ),
+          IconButton(
+            icon: Icon(Icons.download),
+            onPressed: () {
+              const jsonString = '{"nodes":{}, "connections":{}}'; // Replace with your JSON string
+              importFromJson(jsonString);
+            },
+            tooltip: 'Import from JSON',
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
@@ -216,7 +245,7 @@ class _NodeEditorState extends State<NodeEditor> {
           // Palette on the left
           Container(
             width: 100,
-            color: Colors.grey.shade900,
+            color: Colors.grey.shade900, // Dark mode palette background
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
@@ -235,6 +264,7 @@ class _NodeEditorState extends State<NodeEditor> {
               ],
             ),
           ),
+          // The panning and zooming canvas
           Expanded(
             child: InteractiveViewer(
               minScale: 0.5,
@@ -243,20 +273,22 @@ class _NodeEditorState extends State<NodeEditor> {
               onInteractionUpdate: (details) {
                 _panOffset = details.focalPoint;
                 _scale = details.scale;
-                _onPanUpdate(details.localFocalPoint);
+                _onPanUpdate(details.localFocalPoint); // Update the pan offset
               },
               child: Container(
-                width: 3000,
-                height: 3000,
-                color: Colors.grey.shade800,
+                width: 3000, // Set a very large width
+                height: 3000, // Set a very large height
+                color: Colors.grey.shade800, // Dark mode background
                 child: Stack(
-                  clipBehavior: Clip.none,
+                  clipBehavior: Clip.none, // Ensure the content isn't clipped
                   children: [
+                    // Grid Background
                     Positioned.fill(
                       child: CustomPaint(
                         painter: GridPainter(gridSize: 20),
                       ),
                     ),
+                    // Nodes on the canvas
                     Positioned.fill(
                       child: DragTarget<Map<String, dynamic>>(
                         onAcceptWithDetails: (details) {
@@ -265,57 +297,56 @@ class _NodeEditorState extends State<NodeEditor> {
                           final BoxShape shape = details.data['shape'];
                           final bool isDiamond = details.data['isDiamond'];
 
+                          // Correctly adjust the drop position using the transformation matrix
                           _addNode(nodeType, details.offset, color, shape, isDiamond);
                         },
-                        builder: (context, candidateData, rejectedData) {
-                          return Stack(
-                            children: [
-                              for (final entry in _connections.entries)
-                                for (final connection in entry.value.entries)
-                                  CustomPaint(
-                                    painter: ConnectionPainter(
-                                      start: _nodeAnchors[entry.key]![connection.key]!,
-                                      end: _nodeAnchors[connection.value]![connection.key]!,
-                                    ),
-                                  ),
-                              ..._nodes.entries.map((entry) {
-                                final nodeType = entry.key.split('_')[0];
-                                final shape = nodeType == "Decision"
-                                    ? BoxShape.rectangle
-                                    : (nodeType == "Process" ? BoxShape.rectangle : BoxShape.circle);
-                                final color = nodeType == "Start"
-                                    ? Colors.green
-                                    : nodeType == "Process"
-                                    ? Colors.blue
-                                    : nodeType == "Decision"
-                                    ? Colors.orange
-                                    : Colors.red;
+                          builder: (context, candidateData, rejectedData) {
+                            return Stack(
+                              children: [
+                                // Existing connections
+                                ..._buildConnectionWidgets(),
 
-                                return NodeWidget(
-                                  nodeId: entry.key,
-                                  position: entry.value,
-                                  color: color,
-                                  shape: shape,
-                                  isDiamond: nodeType == "Decision",
-                                  onMove: _updateNodePosition,
-                                  scale: _scale,
-                                  label: nodeType,
-                                  onAnchorDragStart: _onAnchorDragStart,
-                                  onAnchorDragUpdate: _onAnchorDragUpdate,
-                                  onAnchorDragEnd: _onAnchorDragEnd,
-                                  onAnchorPositionUpdate: _storeAnchorPositions,
-                                );
-                              }).toList(),
-                            ],
-                          );
-                        },
+                                // Nodes
+                                ..._nodes.entries.map((entry) {
+                                  final nodeType = entry.key.split('_')[0];
+                                  final shape = nodeType == "Decision"
+                                      ? BoxShape.rectangle
+                                      : (nodeType == "Process" ? BoxShape.rectangle : BoxShape.circle);
+                                  final color = nodeType == "Start"
+                                      ? Colors.green
+                                      : nodeType == "Process"
+                                      ? Colors.blue
+                                      : nodeType == "Decision"
+                                      ? Colors.orange
+                                      : Colors.red;
+
+                                  return NodeWidget(
+                                    nodeId: entry.key,
+                                    position: entry.value,
+                                    color: color,
+                                    shape: shape,
+                                    isDiamond: nodeType == "Decision",
+                                    onMove: _updateNodePosition,
+                                    scale: _scale, // Apply the current scale
+                                    label: nodeType,
+                                    onAnchorDragStart: _onAnchorDragStart, // Handle anchor drag start
+                                    onAnchorDragUpdate: _onAnchorDragUpdate, // Handle anchor drag update
+                                    onAnchorDragEnd: _onAnchorDragEnd, // Handle anchor drag end
+                                    onAnchorPositionUpdate: _storeAnchorPositions, // Handle anchor position updates
+                                    onLongPress: _removeConnections, // Pass the removal method here
+                                  );
+                                }).toList(),
+                              ],
+                            );
+                          }
                       ),
                     ),
+                    // Active connection being drawn
                     if (connectionStart != null && currentConnectionPosition != null)
                       CustomPaint(
                         painter: ConnectionPainter(
                           start: connectionStart!,
-                          end: currentConnectionPosition!,
+                          end: currentConnectionPosition!, // Current mouse position
                         ),
                       ),
                   ],
@@ -326,6 +357,36 @@ class _NodeEditorState extends State<NodeEditor> {
         ],
       ),
     );
+  }
+  void saveToLocalStorage() {
+    final jsonString = exportToJson();
+    window.localStorage['node_editor_data'] = jsonString;
+  }
+
+  void loadFromLocalStorage() {
+    final jsonString = window.localStorage['node_editor_data'];
+    if (jsonString != null) {
+      importFromJson(jsonString);
+    }
+  }
+
+  void _resetNodes() {
+    setState(() {
+      _nodes.clear();
+      _connections.clear();
+      _nodeAnchors.clear();
+    });
+  }
+  void _removeConnections(String nodeId) {
+    setState(() {
+      // Remove all connections that originate from this node
+      _connections.remove(nodeId);
+
+      // Remove all connections that point to this node
+      _connections.forEach((startNode, anchorMap) {
+        anchorMap.removeWhere((anchorId, endNodeId) => endNodeId == nodeId);
+      });
+    });
   }
 
   Widget _buildDraggablePaletteButton(
@@ -373,6 +434,42 @@ class _NodeEditorState extends State<NodeEditor> {
       ),
     );
   }
+
+  List<Widget> _buildConnectionWidgets() {
+    List<Widget> connectionWidgets = [];
+
+    for (final entry in _connections.entries) {
+      final startNodeId = entry.key;
+      final anchorMap = entry.value;
+
+      for (final connection in anchorMap.entries) {
+        final startAnchorId = connection.key;
+        final endNodeId = connection.value;
+
+        // Safely access the start and end anchor positions
+        final startAnchorPos = _nodeAnchors[startNodeId]?[startAnchorId];
+        final endAnchorPos = _nodeAnchors[endNodeId]?[startAnchorId];
+
+        // Only add a CustomPaint widget if both positions are non-null
+        if (startAnchorPos != null && endAnchorPos != null) {
+          connectionWidgets.add(
+            CustomPaint(
+              painter: ConnectionPainter(
+                start: startAnchorPos,
+                end: endAnchorPos,
+              ),
+            ),
+          );
+        } else {
+          print('Warning: Could not find anchor positions for connection from $startNodeId (anchor: $startAnchorId) to $endNodeId (anchor: $startAnchorId)');
+        }
+      }
+    }
+
+    return connectionWidgets;
+  }
+
+
 }
 
 class GridPainter extends CustomPainter {
@@ -413,14 +510,13 @@ class ConnectionPainter extends CustomPainter {
       ..color = Colors.white
       ..strokeWidth = 2.0;
 
-    // Debugging: Log the positions used for drawing the connection
-    //print('DEBUG: Drawing connection from $start to $end');
-
     canvas.drawLine(start, end, paint);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
+  bool shouldRepaint(covariant ConnectionPainter oldDelegate) {
+    return start != oldDelegate.start || end != oldDelegate.end;
   }
 }
+
+
