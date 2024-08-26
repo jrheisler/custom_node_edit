@@ -25,6 +25,8 @@ class _NodeEditorState extends State<NodeEditor> {
   double _scale = 1.0;
   Offset _panOffset = Offset.zero; // Track the pan offset
   Timer? _throttleTimer;
+  final TransformationController _transformationController = TransformationController();
+  final Map<String, GlobalKey<NodeWidgetState>> _nodeKeys = {};
 
   void _onPanUpdate(Offset newOffset) {
     if (_throttleTimer?.isActive ?? false) return;
@@ -40,7 +42,7 @@ class _NodeEditorState extends State<NodeEditor> {
 
   @override
   void dispose() {
-    // Dispose any controllers, streams, or other resources
+    _transformationController.dispose();
     super.dispose();
   }
 
@@ -267,13 +269,16 @@ class _NodeEditorState extends State<NodeEditor> {
           // The panning and zooming canvas
           Expanded(
             child: InteractiveViewer(
+              transformationController: _transformationController,
               minScale: 0.5,
               maxScale: 2.0,
               constrained: false,
               onInteractionUpdate: (details) {
                 _panOffset = details.focalPoint;
                 _scale = details.scale;
-                _onPanUpdate(details.localFocalPoint); // Update the pan offset
+                _onPanUpdate(details.localFocalPoint);
+                _onScaleUpdate(details.scale);//
+                _updateAllAnchorPositions();// Update the pan offset
               },
               child: Container(
                 width: 3000, // Set a very large width
@@ -346,7 +351,9 @@ class _NodeEditorState extends State<NodeEditor> {
                       CustomPaint(
                         painter: ConnectionPainter(
                           start: connectionStart!,
-                          end: currentConnectionPosition!, // Current mouse position
+                          end: currentConnectionPosition!,
+                          transform: _transformationController.value, // Pass the transform matrix here
+                          // Current mouse position
                         ),
                       ),
                   ],
@@ -358,6 +365,17 @@ class _NodeEditorState extends State<NodeEditor> {
       ),
     );
   }
+  void _updateAllAnchorPositions() {
+    for (var nodeKey in _nodeKeys.values) {
+      final nodeState = nodeKey.currentState;
+      if (nodeState != null) {
+        nodeState.updateAnchorPositions();
+      }
+    }
+  }
+
+
+
   void saveToLocalStorage() {
     final jsonString = exportToJson();
     window.localStorage['node_editor_data'] = jsonString;
@@ -457,6 +475,7 @@ class _NodeEditorState extends State<NodeEditor> {
               painter: ConnectionPainter(
                 start: startAnchorPos,
                 end: endAnchorPos,
+                transform: _transformationController.value, // Pass the transform matrix here
               ),
             ),
           );
@@ -501,8 +520,13 @@ class GridPainter extends CustomPainter {
 class ConnectionPainter extends CustomPainter {
   final Offset start;
   final Offset end;
+  final Matrix4 transform;
 
-  ConnectionPainter({required this.start, required this.end});
+  ConnectionPainter({
+    required this.start,
+    required this.end,
+    required this.transform,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -510,13 +534,19 @@ class ConnectionPainter extends CustomPainter {
       ..color = Colors.white
       ..strokeWidth = 2.0;
 
-    canvas.drawLine(start, end, paint);
+    // Apply the transformation to the start and end points
+    final transformedStart = MatrixUtils.transformPoint(transform, start);
+    final transformedEnd = MatrixUtils.transformPoint(transform, end);
+
+    // Draw the line
+    canvas.drawLine(transformedStart, transformedEnd, paint);
   }
 
   @override
-  bool shouldRepaint(covariant ConnectionPainter oldDelegate) {
-    return start != oldDelegate.start || end != oldDelegate.end;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
   }
 }
+
 
 

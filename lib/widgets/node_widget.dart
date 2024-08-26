@@ -36,13 +36,42 @@ class NodeWidget extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _NodeWidgetState createState() => _NodeWidgetState();
+  NodeWidgetState createState() => NodeWidgetState();
+
+
+
 }
 
 
-class _NodeWidgetState extends State<NodeWidget> {
+class NodeWidgetState extends State<NodeWidget> {
   Offset _currentPosition = Offset.zero;
+
   final Map<String, Offset> _anchorPositions = {}; // Store anchor positions
+
+  void updateAnchorPositions() {
+    final renderBox = context.findRenderObject() as RenderBox;
+
+    setState(() {
+      _anchorPositions['in'] = renderBox.localToGlobal(Offset.zero);
+      _anchorPositions['out'] = renderBox.localToGlobal(Offset.zero);// +
+          //Offset(renderBox.size.width, renderBox.size.height / 2);
+
+      if (widget.label == 'Decision') {
+        _anchorPositions['outTrue'] = renderBox.localToGlobal(Offset.zero) +
+            Offset(renderBox.size.width, renderBox.size.height / 4);
+        _anchorPositions['outFalse'] = renderBox.localToGlobal(Offset.zero) +
+            Offset(renderBox.size.width, 3 * renderBox.size.height / 4);
+      }
+
+      widget.onAnchorPositionUpdate(widget.nodeId, _anchorPositions);
+    });
+  }
+
+
+
+  @override
+  NodeWidgetState createState() => NodeWidgetState();
+
 
   @override
   void initState() {
@@ -51,7 +80,7 @@ class _NodeWidgetState extends State<NodeWidget> {
 
     // Update anchor positions initially
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateAnchorPositions();
+      updateAnchorPositions();
     });
   }
 
@@ -67,7 +96,7 @@ class _NodeWidgetState extends State<NodeWidget> {
 
     // Update anchor positions whenever the widget updates
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateAnchorPositions();
+      updateAnchorPositions();
     });
   }
 
@@ -84,14 +113,14 @@ class _NodeWidgetState extends State<NodeWidget> {
           setState(() {
             _currentPosition += details.delta;
             widget.onMove(widget.nodeId, _currentPosition);
-            _updateAnchorPositions(); // Update positions during move
+            updateAnchorPositions(); // Update positions during move
           });
         },
         onPanEnd: (details) {
           setState(() {
             _currentPosition = _snapToGrid(_currentPosition);
             widget.onMove(widget.nodeId, _currentPosition);
-            _updateAnchorPositions(); // Ensure positions are accurate after move
+            updateAnchorPositions(); // Ensure positions are accurate after move
           });
         },
         onLongPress: () {
@@ -152,6 +181,9 @@ class _NodeWidgetState extends State<NodeWidget> {
     );
   }
 
+
+
+
   Widget _buildAnchor(String anchorId, Alignment alignment, Color color, IconData icon) {
     return Positioned(
       child: Align(
@@ -182,7 +214,7 @@ class _NodeWidgetState extends State<NodeWidget> {
     );
   }
 /*
-  void _updateAnchorPositions() {
+  void updateAnchorPositions() {
     final renderBox = context.findRenderObject() as RenderBox;
 
     setState(() {
@@ -213,30 +245,6 @@ class _NodeWidgetState extends State<NodeWidget> {
   }
 
  */
-  void _updateAnchorPositions() {
-    final renderBox = context.findRenderObject() as RenderBox;
-
-    setState(() {
-      final topLeft = renderBox.localToGlobal(Offset.zero); // Top-left corner of the node
-      final nodeWidth = renderBox.size.width;
-      final nodeHeight = renderBox.size.height;
-
-      _anchorPositions['in'] = topLeft + Offset(0, nodeHeight / 2);
-      _anchorPositions['out'] = topLeft + Offset(0, nodeHeight / 7);
-
-      if (widget.label == 'Decision') {
-        _anchorPositions['outTrue'] = topLeft;// + Offset(nodeWidth, nodeHeight / 4);
-        _anchorPositions['outFalse'] = topLeft;// + Offset(nodeWidth, 3 * nodeHeight / 4);
-      }
-
-      widget.onAnchorPositionUpdate(widget.nodeId, _anchorPositions);
-
-      // Debugging output
-      //print('Anchor Positions for ${widget.nodeId}: $_anchorPositions');
-    });
-  }
-
-
 
   Offset _snapToGrid(Offset position) {
     final double gridSize = 20.0;
